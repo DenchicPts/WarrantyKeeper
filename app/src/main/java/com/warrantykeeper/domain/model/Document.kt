@@ -24,6 +24,8 @@ data class Document(
     val warrantyEndDate: Date? = null,
     val storeName: String? = null,
     val notes: String? = null,
+    val totalAmount: Double? = null,   // итоговая сумма из чека
+    val currency: String? = null,      // валюта: "EUR", "USD", "PLN", "RUB" и т.д.
     val createdAt: Date = Date(),
     val updatedAt: Date = Date(),
     val isSynced: Boolean = false,

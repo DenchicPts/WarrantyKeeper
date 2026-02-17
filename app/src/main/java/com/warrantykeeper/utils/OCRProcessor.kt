@@ -24,6 +24,14 @@ data class WarrantyInfo(
     val rawText: String = ""
 )
 
+data class ReceiptInfo(
+    val storeName: String? = null,
+    val purchaseDate: Date? = null,
+    val totalAmount: Double? = null,
+    val currency: String? = null,      // "EUR", "USD", "PLN", "RUB", "GBP"
+    val rawText: String = ""
+)
+
 @Singleton
 class OCRProcessor @Inject constructor(private val context: Context) {
 
@@ -82,6 +90,14 @@ class OCRProcessor @Inject constructor(private val context: Context) {
             val text = recognizer.process(InputImage.fromBitmap(bitmap, 0)).await().text
             parseAll(text)
         } catch (e: Exception) { WarrantyInfo() }
+    }
+
+    suspend fun processReceipt(imageUri: Uri): ReceiptInfo {
+        return try {
+            val bitmap = loadAndRotateBitmap(imageUri) ?: return ReceiptInfo()
+            val text = recognizer.process(InputImage.fromBitmap(bitmap, 0)).await().text
+            parseReceipt(text)
+        } catch (e: Exception) { ReceiptInfo() }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -430,6 +446,181 @@ class OCRProcessor @Inject constructor(private val context: Context) {
                 Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
             } else bitmap
         } catch (e: Exception) { null }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // RECEIPT PARSER
+    // ──────────────────────────────────────────────────────────────────────
+
+    private fun parseReceipt(text: String): ReceiptInfo {
+        val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
+        return ReceiptInfo(
+            storeName    = extractStoreName(lines, text),
+            purchaseDate = extractReceiptDate(text),
+            totalAmount  = extractTotalAmount(text),
+            currency     = extractCurrency(text),
+            rawText      = text
+        )
+    }
+
+    /**
+     * Дата чека — специальная логика:
+     * 1. Ищем строку с временем (HH:mm:ss) — это почти всегда строка транзакции (Maxima, Rimi, POS)
+     * 2. Ищем по ключевым словам кассового чека
+     * 3. Fallback: берём ПОСЛЕДНЮЮ валидную дату (не первую!) чтобы избежать
+     *    дат лояльных карт "DERĪGA LĪDZ 01.03.2026" которые идут раньше реальной даты
+     */
+    private fun extractReceiptDate(text: String): Date? {
+        val lines = text.lines()
+
+        // Приоритет 1: строка с временем HH:mm:ss (типичная для POS-терминала)
+        // Пример Maxima: "0100001F1902C2F1    13.02.2026 08:44:05"
+        val timePattern = Regex("""(\d{2}[./\-]\d{2}[./\-]\d{4})\s+\d{2}:\d{2}:\d{2}""")
+        for (line in lines) {
+            timePattern.find(line)?.let { m ->
+                parseAnyDate(m.groupValues[1])?.let { return it }
+            }
+        }
+        // ISO с временем: "2026-02-13T08:44:05"
+        val isoTime = Regex("""(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}""")
+        for (line in lines) {
+            isoTime.find(line)?.let { m ->
+                parseAnyDate(m.groupValues[1])?.let { return it }
+            }
+        }
+
+        // Приоритет 2: ключевые слова кассового чека
+        val lower = text.lowercase()
+        // Эти контексты — срок действия карты лояльности, НЕ дата чека
+        val skipContexts = listOf(
+            "derīga līdz", "gültig bis", "valid until",
+            "срок действия", "действителен до"
+        )
+        val receiptDateKeywords = listOf(
+            "kasieris", "kasa:", "касса",
+            "datum:", "rechnungsdatum", "kaufdatum",
+            "date:", "order date", "purchase date", "transaction date",
+            "čeka datums", "pirkuma datums",
+            "data:", "data zakupu", "data zamówienia",
+            "дата:", "дата чека", "дата покупки", "дата операции", "кассовый чек"
+        )
+        for (keyword in receiptDateKeywords) {
+            val idx = lower.indexOf(keyword)
+            if (idx < 0) continue
+            val lineIdx = lines.indexOfFirst { it.lowercase().contains(keyword) }
+            val lineText = lines.getOrNull(lineIdx) ?: ""
+            if (skipContexts.any { lineText.lowercase().contains(it) }) continue
+            val snippet = text.substring(idx, minOf(text.length, idx + 120))
+            parseAnyDate(snippet)?.let { return it }
+            if (lineIdx >= 0) {
+                for (offset in 0..3) {
+                    lines.getOrNull(lineIdx + offset)?.let { l ->
+                        parseAnyDate(l)?.let { return it }
+                    }
+                }
+            }
+        }
+
+        // Приоритет 3: все даты в тексте — берём последнюю (транзакция идёт в конце чека)
+        val allDates = mutableListOf<Pair<Date, Int>>()
+        for ((idx, line) in lines.withIndex()) {
+            val lineLower = line.lowercase()
+            if (skipContexts.any { lineLower.contains(it) }) continue
+            parseAnyDate(line)?.let { allDates.add(Pair(it, idx)) }
+        }
+        return allDates.maxByOrNull { it.second }?.first
+    }
+
+    /**
+     * Итоговая сумма: ищем по ключевым словам рядом с числовым значением.
+     * Обрабатываем форматы: 12.99, 12,99, 1.299,99, 1,299.99
+     *
+     * Важно: исключаем строки с % (это НДС/PVN/MwSt, не сумма)
+     * Пример Maxima: "A=21,00%  1,15  0,24  1,39" — 21% это ставка НДС!
+     * Нужная строка: "SUMMA apmaksai  1,39"
+     */
+    private fun extractTotalAmount(text: String): Double? {
+        val lines = text.lines()
+        val lower = text.lowercase()
+
+        // Ключевые слова итоговой суммы (от специфичных к общим)
+        val totalKeywords = listOf(
+            // LV (Maxima/Rimi) — очень специфичные
+            "summa apmaksai", "kopā apmaksai", "apmaksai",
+            "kopā maksājams", "kopējā summa",
+            // DE
+            "gesamtbetrag", "summe gesamt", "zu zahlen", "gesamtsumme",
+            "endbetrag", "rechnungsbetrag", "gesamt:",
+            // EN
+            "grand total", "total due", "amount due", "total amount",
+            "amount paid", "total paid", "order total",
+            // PL
+            "do zapłaty", "suma do zapłaty", "razem do zapłaty", "do zapłaty:",
+            // RU
+            "итого к оплате", "к оплате:", "итоговая сумма", "итого:",
+            // Общие — только в конце (высокий риск ложных срабатываний)
+            "total", "summe", "razem", "итого"
+        )
+
+        // Строки которые точно НЕ содержат итоговую сумму
+        val skipLinePatterns = listOf(
+            Regex("""\d+[.,]\d+\s*%"""),        // строка содержит процент (НДС)
+            Regex("""pvn|mwst|vat|ндс""", RegexOption.IGNORE_CASE),  // налог
+            Regex("""ietaupījums|rabatt|скидка|zniżka""", RegexOption.IGNORE_CASE) // скидка (не сумма)
+        )
+
+        val amountRegex = Regex("""[€${'$'}£₽zł]?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?|\d+[.,]\d{2})\s*[€${'$'}£₽]?""")
+
+        for (keyword in totalKeywords) {
+            val lineIdx = lines.indexOfFirst { it.lowercase().contains(keyword) }
+            if (lineIdx < 0) continue
+            val line = lines[lineIdx]
+            // Пропускаем строки с процентами или налогами
+            if (skipLinePatterns.any { it.containsMatchIn(line) }) continue
+
+            val match = amountRegex.findAll(line)
+                .mapNotNull { parseAmount(it.value) }
+                .filter { it in 0.01..99999.0 }
+                .maxOrNull()
+            if (match != null) return match
+        }
+        return null
+    }
+
+    /** Парсит строку с суммой в Double. Поддерживает "12,99", "12.99", "1.299,99" */
+    private fun parseAmount(raw: String): Double? {
+        val cleaned = raw.trim().replace(Regex("""[€$£₽zł\s]"""), "")
+        if (cleaned.isBlank()) return null
+        return try {
+            when {
+                // "1.299,99" → европейский формат: точка — разделитель тысяч, запятая — дробная
+                cleaned.contains(",") && cleaned.contains(".") && cleaned.lastIndexOf(",") > cleaned.lastIndexOf(".") ->
+                    cleaned.replace(".", "").replace(",", ".").toDouble()
+                // "1,299.99" → американский формат
+                cleaned.contains(",") && cleaned.contains(".") ->
+                    cleaned.replace(",", "").toDouble()
+                // "12,99" → только запятая = дробная часть
+                cleaned.contains(",") && !cleaned.contains(".") ->
+                    cleaned.replace(",", ".").toDouble()
+                // "12.99" или просто число
+                else -> cleaned.toDouble()
+            }
+        } catch (e: NumberFormatException) { null }
+    }
+
+    /** Определяет валюту по символам или ключевым словам в тексте */
+    private fun extractCurrency(text: String): String? {
+        return when {
+            text.contains("€") || text.contains("EUR", ignoreCase = true) -> "EUR"
+            text.contains("$") || text.contains("USD", ignoreCase = true) -> "USD"
+            text.contains("£") || text.contains("GBP", ignoreCase = true) -> "GBP"
+            text.contains("₽") || text.contains("RUB", ignoreCase = true)
+                || text.contains("руб", ignoreCase = true) -> "RUB"
+            text.contains("zł") || text.contains("PLN", ignoreCase = true)
+                || text.contains("zl", ignoreCase = true) -> "PLN"
+            text.contains("lv", ignoreCase = true) && text.contains("EUR", ignoreCase = true) -> "EUR"
+            else -> null
+        }
     }
 
     fun release() { recognizer.close() }

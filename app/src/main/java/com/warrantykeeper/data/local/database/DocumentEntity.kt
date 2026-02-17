@@ -23,6 +23,8 @@ data class DocumentEntity(
     val warrantyEndDate: Long? = null, // timestamp
     val storeName: String? = null,
     val notes: String? = null,
+    val totalAmount: Double? = null,   // итоговая сумма из чека
+    val currency: String? = null,      // валюта: EUR, USD, PLN, RUB и т.д.
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val isSynced: Boolean = false,
@@ -41,6 +43,8 @@ fun DocumentEntity.toDomain(): Document {
         warrantyEndDate = warrantyEndDate?.let { Date(it) },
         storeName = storeName,
         notes = notes,
+        totalAmount = totalAmount,
+        currency = currency,
         createdAt = Date(createdAt),
         updatedAt = Date(updatedAt),
         isSynced = isSynced,
@@ -60,6 +64,8 @@ fun Document.toEntity(): DocumentEntity {
         warrantyEndDate = warrantyEndDate?.time,
         storeName = storeName,
         notes = notes,
+        totalAmount = totalAmount,
+        currency = currency,
         createdAt = createdAt.time,
         updatedAt = updatedAt.time,
         isSynced = isSynced,

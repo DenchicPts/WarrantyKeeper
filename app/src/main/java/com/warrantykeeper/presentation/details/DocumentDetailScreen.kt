@@ -449,6 +449,24 @@ private fun DocumentContent(
                             InfoRow(Icons.Default.EventBusy, "Конец гарантии", dateFormat.format(it))
                         }
                     }
+                    // Сумма чека
+                    if (document.type == DocumentType.RECEIPT) {
+                        document.totalAmount?.let { amount ->
+                            val currencySymbol = when (document.currency) {
+                                "EUR" -> "€"
+                                "USD" -> "$"
+                                "GBP" -> "£"
+                                "RUB" -> "₽"
+                                "PLN" -> "zł"
+                                else  -> document.currency ?: ""
+                            }
+                            val formatted = if (amount == amount.toLong().toDouble())
+                                "${amount.toLong()} $currencySymbol"
+                            else
+                                "%.2f %s".format(amount, currencySymbol)
+                            InfoRow(Icons.Default.ShoppingCart, "Сумма", formatted.trim())
+                        }
+                    }
                 }
 
                 document.notes?.let {

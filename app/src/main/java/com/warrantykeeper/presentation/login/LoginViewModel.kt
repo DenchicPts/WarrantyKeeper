@@ -1,9 +1,12 @@
 package com.warrantykeeper.presentation.login
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.warrantykeeper.data.local.prefs.PreferencesManager
+import com.warrantykeeper.workers.DriveRestoreWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,7 +15,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class LoginViewModel @Inject constructor(
-    private val preferencesManager: PreferencesManager
+    private val preferencesManager: PreferencesManager,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LoginUiState>(LoginUiState.Initial)
@@ -24,6 +28,8 @@ class LoginViewModel @Inject constructor(
             try {
                 preferencesManager.setLoginStatus(true)
                 preferencesManager.setUserData(email, name, photoUrl)
+                // После входа — пробуем восстановить данные из Drive
+                DriveRestoreWorker.runOnce(context)
                 _uiState.value = LoginUiState.Success
             } catch (e: Exception) {
                 _uiState.value = LoginUiState.Error(e.message ?: "Неизвестная ошибка")

@@ -44,11 +44,16 @@ class AddDocumentUseCase @Inject constructor(
                     isSynced = false
                 )
             } else {
+                val receiptInfo = ocrProcessor.processReceipt(imageUri)
                 Document(
                     userId = userId,
-                    title = "Чек $dateLabel",
+                    title = receiptInfo.storeName?.let { "Чек $it" } ?: "Чек $dateLabel",
                     type = DocumentType.RECEIPT,
                     photoLocalPath = savedFile.absolutePath,
+                    purchaseDate = receiptInfo.purchaseDate,
+                    storeName = receiptInfo.storeName,
+                    totalAmount = receiptInfo.totalAmount,
+                    currency = receiptInfo.currency,
                     createdAt = Date(),
                     updatedAt = Date(),
                     isSynced = false

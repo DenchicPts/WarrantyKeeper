@@ -127,4 +127,13 @@ class FileHelper @Inject constructor(
     fun getDocumentFileSize(path: String): Long {
         return try { File(path).length() } catch (e: Exception) { 0L }
     }
+
+    /**
+     * Строит локальный путь для документа восстановленного из Drive.
+     * Используется DriveRestoreWorker.
+     */
+    fun buildLocalPath(docId: Long, driveFileId: String): String {
+        val name = "DOC_restored_${docId}.jpg"
+        return File(documentsDir, name).absolutePath
+    }
 }
