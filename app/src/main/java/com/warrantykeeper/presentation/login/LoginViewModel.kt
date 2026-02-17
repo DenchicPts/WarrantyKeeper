@@ -20,12 +20,13 @@ class LoginViewModel @Inject constructor(
 
     fun onGoogleSignInSuccess(email: String?, name: String?, photoUrl: String?) {
         viewModelScope.launch {
+            _uiState.value = LoginUiState.Loading
             try {
                 preferencesManager.setLoginStatus(true)
                 preferencesManager.setUserData(email, name, photoUrl)
                 _uiState.value = LoginUiState.Success
             } catch (e: Exception) {
-                _uiState.value = LoginUiState.Error(e.message ?: "Unknown error")
+                _uiState.value = LoginUiState.Error(e.message ?: "Неизвестная ошибка")
             }
         }
     }
@@ -41,6 +42,7 @@ class LoginViewModel @Inject constructor(
 
 sealed class LoginUiState {
     object Initial : LoginUiState()
+    object Loading : LoginUiState()
     object Success : LoginUiState()
     data class Error(val message: String) : LoginUiState()
 }

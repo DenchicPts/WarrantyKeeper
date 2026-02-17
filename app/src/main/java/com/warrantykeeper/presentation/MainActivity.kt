@@ -10,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -19,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.warrantykeeper.data.local.prefs.PreferencesManager
 import com.warrantykeeper.presentation.camera.CameraScreen
+import com.warrantykeeper.presentation.details.DocumentDetailScreen
 import com.warrantykeeper.presentation.login.LoginScreen
 import com.warrantykeeper.presentation.main.MainScreen
 import com.warrantykeeper.presentation.settings.SettingsScreen
@@ -40,7 +40,6 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // ✅ Передаём preferencesManager как параметр
                     val isLoggedIn by preferencesManager.isLoggedIn.collectAsState(initial = false)
                     AppNavigation(isLoggedIn = isLoggedIn)
                 }
@@ -74,7 +73,7 @@ fun AppNavigation(
                     navController.navigate(Screen.Camera.route)
                 },
                 onNavigateToDocument = { documentId ->
-                    // TODO: Navigate to document details
+                    navController.navigate(Screen.DocumentDetails.createRoute(documentId))
                 },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
@@ -89,7 +88,18 @@ fun AppNavigation(
                 },
                 onDocumentSaved = { documentId ->
                     navController.popBackStack()
-                    // TODO: Navigate to document details or show success
+                    navController.navigate(Screen.DocumentDetails.createRoute(documentId))
+                }
+            )
+        }
+
+        composable(
+            route = Screen.DocumentDetails.route,
+            arguments = listOf(navArgument("documentId") { type = NavType.LongType })
+        ) {
+            DocumentDetailScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
                 }
             )
         }

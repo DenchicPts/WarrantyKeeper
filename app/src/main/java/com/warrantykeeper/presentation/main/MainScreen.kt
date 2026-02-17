@@ -12,15 +12,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.warrantykeeper.domain.model.Document
 import com.warrantykeeper.domain.model.DocumentType
 import com.warrantykeeper.domain.model.WarrantyStatus
+import com.warrantykeeper.presentation.details.FullscreenPhotoViewer
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -35,18 +41,15 @@ fun MainScreen(
     val documents by viewModel.documents.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val filterType by viewModel.filterType.collectAsState()
-    var showFilterMenu by remember { mutableStateOf(false) }
+    var showFullscreenPhoto by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("WarrantyKeeper") },
                 actions = {
-                    IconButton(onClick = { showFilterMenu = true }) {
-                        Icon(Icons.Default.FilterList, "Filter")
-                    }
                     IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, "Settings")
+                        Icon(Icons.Default.Settings, "Настройки")
                     }
                 }
             )
@@ -56,7 +59,7 @@ fun MainScreen(
                 onClick = onNavigateToCamera,
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Default.Add, "Add Document")
+                Icon(Icons.Default.Add, "Добавить документ")
             }
         }
     ) { paddingValues ->
@@ -66,28 +69,86 @@ fun MainScreen(
                 .padding(paddingValues)
         ) {
             // Search bar
-            SearchBar(
-                query = searchQuery,
-                onQueryChange = viewModel::onSearchQueryChange,
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = viewModel::onSearchQueryChange,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                placeholder = { Text("Поиск документов...") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
+                            Icon(Icons.Default.Clear, "Очистить")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(24.dp)
             )
 
             // Filter chips
-            FilterChips(
-                currentFilter = filterType,
-                onFilterChange = viewModel::onFilterTypeChange,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = filterType == FilterType.ALL,
+                    onClick = { viewModel.onFilterTypeChange(FilterType.ALL) },
+                    label = { Text("Все") }
+                )
+                FilterChip(
+                    selected = filterType == FilterType.WARRANTIES,
+                    onClick = { viewModel.onFilterTypeChange(FilterType.WARRANTIES) },
+                    label = { Text("Гарантии") }
+                )
+                FilterChip(
+                    selected = filterType == FilterType.RECEIPTS,
+                    onClick = { viewModel.onFilterTypeChange(FilterType.RECEIPTS) },
+                    label = { Text("Чеки") }
+                )
+                FilterChip(
+                    selected = filterType == FilterType.ACTIVE_WARRANTIES,
+                    onClick = { viewModel.onFilterTypeChange(FilterType.ACTIVE_WARRANTIES) },
+                    label = { Text("Активные") }
+                )
+            }
 
             // Documents list
             if (documents.isEmpty()) {
-                EmptyState(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(16.dp)
-                )
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            modifier = Modifier.size(120.dp),
+                            tint = MaterialTheme.colorScheme.outlineVariant
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Нет документов",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Нажмите + чтобы добавить первый документ",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -97,69 +158,20 @@ fun MainScreen(
                     items(documents, key = { it.id }) { document ->
                         DocumentCard(
                             document = document,
-                            onClick = { onNavigateToDocument(document.id) }
+                            onCardClick = { onNavigateToDocument(document.id) },
+                            onPhotoClick = { showFullscreenPhoto = document.photoLocalPath }
                         )
                     }
                 }
             }
         }
     }
-}
 
-@Composable
-fun SearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = modifier,
-        placeholder = { Text("Поиск документов...") },
-        leadingIcon = { Icon(Icons.Default.Search, null) },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(Icons.Default.Clear, "Clear")
-                }
-            }
-        },
-        singleLine = true,
-        shape = RoundedCornerShape(24.dp)
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun FilterChips(
-    currentFilter: FilterType,
-    onFilterChange: (FilterType) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        FilterChip(
-            selected = currentFilter == FilterType.ALL,
-            onClick = { onFilterChange(FilterType.ALL) },
-            label = { Text("Все") }
-        )
-        FilterChip(
-            selected = currentFilter == FilterType.WARRANTIES,
-            onClick = { onFilterChange(FilterType.WARRANTIES) },
-            label = { Text("Гарантии") }
-        )
-        FilterChip(
-            selected = currentFilter == FilterType.RECEIPTS,
-            onClick = { onFilterChange(FilterType.RECEIPTS) },
-            label = { Text("Чеки") }
-        )
-        FilterChip(
-            selected = currentFilter == FilterType.ACTIVE_WARRANTIES,
-            onClick = { onFilterChange(FilterType.ACTIVE_WARRANTIES) },
-            label = { Text("Активные") }
+    // Fullscreen photo from main list
+    showFullscreenPhoto?.let { photoPath ->
+        FullscreenPhotoViewer(
+            imagePath = photoPath,
+            onDismiss = { showFullscreenPhoto = null }
         )
     }
 }
@@ -167,49 +179,91 @@ fun FilterChips(
 @Composable
 fun DocumentCard(
     document: Document,
-    onClick: () -> Unit,
+    onCardClick: () -> Unit,
+    onPhotoClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // Clicking anywhere on the card (text/empty space) goes to details
+                .clickable(onClick = onCardClick)
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Thumbnail
-            AsyncImage(
-                model = document.photoLocalPath,
-                contentDescription = null,
+            // Thumbnail — clicking only the photo opens fullscreen view
+            Box(
                 modifier = Modifier
                     .size(80.dp)
-                    .clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop
-            )
+                    .clip(RoundedCornerShape(8.dp))
+                    // Override the parent clickable: photo click opens fullscreen
+                    .clickable(onClick = onPhotoClick)
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(document.photoLocalPath)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Фото документа",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
 
-            // Info
+                // Small cloud sync icon over thumbnail
+                if (document.isSynced) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDone,
+                            contentDescription = "Синхронизировано",
+                            modifier = Modifier.size(14.dp),
+                            tint = Color.White
+                        )
+                    }
+                }
+            }
+
+            // Info area (text + status)
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = document.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                if (document.storeName != null) {
+                // Title + sync indicator
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(
-                        text = document.storeName,
+                        text = document.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (!document.isSynced) {
+                        Icon(
+                            imageVector = Icons.Default.CloudOff,
+                            contentDescription = "Не синхронизировано",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    }
+                }
+
+                document.storeName?.let {
+                    Text(
+                        text = it,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -240,7 +294,6 @@ fun DocumentCard(
                                 null -> MaterialTheme.colorScheme.onSurfaceVariant
                             }
                         )
-
                         Text(
                             text = when {
                                 daysLeft < 0 -> "Истекла ${dateFormat.format(document.warrantyEndDate)}"
@@ -255,36 +308,22 @@ fun DocumentCard(
                             }
                         )
                     }
+                } else if (document.type == DocumentType.RECEIPT) {
+                    Text(
+                        text = "Чек",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-        }
-    }
-}
 
-@Composable
-fun EmptyState(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.Description,
-            contentDescription = null,
-            modifier = Modifier.size(120.dp),
-            tint = MaterialTheme.colorScheme.outlineVariant
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Нет документов",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Нажмите + чтобы добавить первый документ",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+            // Arrow hint
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.align(Alignment.CenterVertically),
+                tint = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
     }
 }

@@ -1,20 +1,25 @@
 package com.warrantykeeper.data.local.database
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.warrantykeeper.domain.model.Document
 import com.warrantykeeper.domain.model.DocumentType
 import java.util.Date
 
-@Entity(tableName = "documents")
+@Entity(
+    tableName = "documents",
+    indices = [Index(value = ["userId"])]
+)
 data class DocumentEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
+    val userId: String = "",          // Google email — изоляция данных пользователей
     val title: String,
-    val type: String, // RECEIPT or WARRANTY
+    val type: String,                  // RECEIPT or WARRANTY
     val photoLocalPath: String,
     val photoCloudPath: String? = null,
-    val purchaseDate: Long? = null, // timestamp
+    val purchaseDate: Long? = null,    // timestamp
     val warrantyEndDate: Long? = null, // timestamp
     val storeName: String? = null,
     val notes: String? = null,
@@ -24,10 +29,10 @@ data class DocumentEntity(
     val googleDriveFileId: String? = null
 )
 
-// Extension functions for mapping
 fun DocumentEntity.toDomain(): Document {
     return Document(
         id = id,
+        userId = userId,
         title = title,
         type = DocumentType.valueOf(type),
         photoLocalPath = photoLocalPath,
@@ -46,6 +51,7 @@ fun DocumentEntity.toDomain(): Document {
 fun Document.toEntity(): DocumentEntity {
     return DocumentEntity(
         id = id,
+        userId = userId,
         title = title,
         type = type.name,
         photoLocalPath = photoLocalPath,

@@ -15,6 +15,7 @@ enum class WarrantyStatus {
 
 data class Document(
     val id: Long = 0,
+    val userId: String = "",           // привязка к Google-аккаунту
     val title: String,
     val type: DocumentType,
     val photoLocalPath: String,
@@ -30,17 +31,15 @@ data class Document(
 ) {
     fun getWarrantyStatus(): WarrantyStatus? {
         if (type != DocumentType.WARRANTY || warrantyEndDate == null) return null
-        
         val now = Date()
         val daysUntilExpiry = ((warrantyEndDate.time - now.time) / (1000 * 60 * 60 * 24)).toInt()
-        
         return when {
             daysUntilExpiry < 0 -> WarrantyStatus.EXPIRED
             daysUntilExpiry <= 30 -> WarrantyStatus.EXPIRING_SOON
             else -> WarrantyStatus.ACTIVE
         }
     }
-    
+
     fun getDaysUntilExpiry(): Int? {
         if (warrantyEndDate == null) return null
         val now = Date()

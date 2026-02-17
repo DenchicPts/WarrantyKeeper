@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.warrantykeeper.data.local.database.AppDatabase
 import com.warrantykeeper.data.local.database.DocumentDao
+import com.warrantykeeper.data.remote.GoogleDriveManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -22,7 +23,10 @@ object AppModule {
             context,
             AppDatabase::class.java,
             "warranty_keeper_db"
-        ).build()
+        )
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .fallbackToDestructiveMigration() // safety net — if migration fails, recreate
+            .build()
     }
 
     @Provides
@@ -35,5 +39,11 @@ object AppModule {
     @Singleton
     fun provideContext(@ApplicationContext context: Context): Context {
         return context
+    }
+
+    @Provides
+    @Singleton
+    fun provideGoogleDriveManager(@ApplicationContext context: Context): GoogleDriveManager {
+        return GoogleDriveManager(context)
     }
 }

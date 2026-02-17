@@ -3,10 +3,13 @@ package com.warrantykeeper.utils
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
@@ -16,29 +19,65 @@ import javax.inject.Singleton
 class FileHelper @Inject constructor(
     private val context: Context
 ) {
-    
+
     private val documentsDir: File
         get() {
             val dir = File(context.filesDir, "documents")
-            if (!dir.exists()) {
-                dir.mkdirs()
-            }
+            if (!dir.exists()) dir.mkdirs()
             return dir
         }
 
     fun createImageFile(): File {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val fileName = "DOC_${timeStamp}.webp"
-        return File(documentsDir, fileName)
+        return File(documentsDir, "DOC_${timeStamp}.webp")
     }
 
+    /**
+     * Save image from URI, auto-correcting rotation via EXIF so it always displays upright.
+     */
     fun saveImage(uri: Uri): File? {
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            inputStream?.close()
-            
+            val bitmap = loadAndRotateBitmap(uri) ?: return null
             saveImage(bitmap)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Load bitmap and rotate it according to EXIF orientation tag.
+     */
+    private fun loadAndRotateBitmap(uri: Uri): Bitmap? {
+        return try {
+            val stream: InputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val bitmap = BitmapFactory.decodeStream(stream)
+            stream.close()
+
+            val exifStream: InputStream? = context.contentResolver.openInputStream(uri)
+            val degrees = exifStream?.use { s ->
+                try {
+                    val exif = ExifInterface(s)
+                    val orientation = exif.getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL
+                    )
+                    when (orientation) {
+                        ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> 0f // handle separately if needed
+                        else -> 0f
+                    }
+                } catch (e: Exception) { 0f }
+            } ?: 0f
+
+            if (degrees != 0f) {
+                val matrix = Matrix().apply { postRotate(degrees) }
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                bitmap
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -53,14 +92,11 @@ class FileHelper @Inject constructor(
         return file
     }
 
-    fun getImageFile(path: String): File {
-        return File(path)
-    }
+    fun getImageFile(path: String): File = File(path)
 
     fun deleteImage(path: String): Boolean {
         return try {
-            val file = File(path)
-            file.delete()
+            File(path).delete()
         } catch (e: Exception) {
             e.printStackTrace()
             false
@@ -84,19 +120,11 @@ class FileHelper @Inject constructor(
         }
     }
 
-    fun getDocumentsDirectory(): File {
-        return documentsDir
-    }
+    fun getDocumentsDirectory(): File = documentsDir
 
-    fun getAllDocumentFiles(): List<File> {
-        return documentsDir.listFiles()?.toList() ?: emptyList()
-    }
+    fun getAllDocumentFiles(): List<File> = documentsDir.listFiles()?.toList() ?: emptyList()
 
     fun getDocumentFileSize(path: String): Long {
-        return try {
-            File(path).length()
-        } catch (e: Exception) {
-            0L
-        }
+        return try { File(path).length() } catch (e: Exception) { 0L }
     }
 }
